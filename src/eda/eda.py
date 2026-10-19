@@ -1,9 +1,14 @@
 import argparse
+import ast
 import csv
+import json
 import time
 from pathlib import Path
 
 import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
 from tabulate import tabulate
 
 
@@ -11,7 +16,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_DIR / "data"
 DATA_FILES = (
     "movies_metadata.csv",
-    "credits_small.csv",
+    "credits.csv",
     "keywords.csv",
     "links_small.csv",
     "ratings_small.csv",
@@ -164,9 +169,10 @@ def _infer_column_type(column, series):
     return expected_type, invalid_mask
 
 
-def inspect_data(data_dir=DATA_DIR, output_dir=OUTPUT_DIR):
+def inspect_data(data=None, data_dir=DATA_DIR, output_dir=OUTPUT_DIR):
     """Inspect every CSV and write inspection, invalid-value, and duplicate reports."""
-    data = load_data(data_dir)
+    if data is None:
+        data = load_data(data_dir)
     rows = []
     invalid_values = []
     duplicate_rows = []
@@ -241,7 +247,7 @@ def _record_correction(corrections, table, column, rule, affected_rows):
     )
 
 
-def handle_missing_data(data, output_dir=OUTPUT_DIR, output_files=False):
+def handle_missing_data(data, output_dir=OUTPUT_DIR, output_clean_files=False):
     """Apply the step 3 missing-data policy and keep cleaned tables in memory."""
     cleaned = {}
     corrections = []
@@ -299,11 +305,11 @@ def handle_missing_data(data, output_dir=OUTPUT_DIR, output_files=False):
 
         cleaned[filename] = result
 
-    if output_files:
+    if output_clean_files:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         for filename, frame in cleaned.items():
-            frame.to_csv(output_dir / f"step_3_cleaned_{filename}", index=False)
+            frame.to_csv(output_dir / f"step_3_{filename}", index=False)
         pd.DataFrame(
             corrections,
             columns=["table", "column", "rule", "affected_rows"],
@@ -311,20 +317,296 @@ def handle_missing_data(data, output_dir=OUTPUT_DIR, output_files=False):
     return cleaned
 
 
+def prepare_movies_for_analysis(movies):
+    """Coerce movie fields to analysis-ready types without changing the input."""
+    result = movies.copy()
+    numeric_columns = (
+        "budget",
+        "id",
+        "popularity",
+        "revenue",
+        "runtime",
+        "vote_average",
+        "vote_count",
+    )
+    for column in numeric_columns:
+        result[column] = pd.to_numeric(result[column], errors="coerce")
+    result["release_date"] = pd.to_datetime(result["release_date"], errors="coerce")
+    result["release_year"] = result["release_date"].dt.year.astype("Int64")
+    return result
+
+
+def parse_nested(value):
+    """Parse a serialized list of dictionaries from the movie metadata."""
+    if pd.isna(value) or value in ("", "[]", "{}"):
+        return []
+    try:
+        parsed = ast.literal_eval(str(value))
+    except (SyntaxError, ValueError):
+        try:
+            parsed = json.loads(str(value))
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def explode_names(frame, column):
+    """Return one row per nested movie item with its movie identifier."""
+    rows = []
+    for movie_id, values in frame[["id", column]].itertuples(index=False):
+        for item in parse_nested(values):
+            if isinstance(item, dict) and item.get("name"):
+                rows.append({"id": movie_id, "name": item["name"]})
+    return pd.DataFrame(rows, columns=["id", "name"])
+
+
+def plot_movie_distributions(
+    movies,
+    output_dir=OUTPUT_DIR,
+    output_eda_files=False,
+):
+    """Create step 4 movie distributions and return descriptive statistics."""
+    numeric_columns = [
+        "budget",
+        "revenue",
+        "popularity",
+        "runtime",
+        "vote_average",
+        "vote_count",
+    ]
+    statistics = movies[numeric_columns].describe().transpose()
+
+    if output_eda_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        statistics.to_csv(output_dir / "step_4_movie_descriptive_statistics.csv")
+        figure, axes = plt.subplots(2, 3, figsize=(16, 9))
+        for axis, column in zip(axes.flat, numeric_columns):
+            values = movies[column].dropna()
+            if column in {"budget", "revenue", "popularity", "vote_count"}:
+                values = values[values >= 0]
+                values = np.log1p(values)
+                axis.set_xlabel("log(1 + value)")
+            else:
+                axis.set_xlabel(column.replace("_", " ").title())
+            sns.histplot(values, bins=40, ax=axis)
+            axis.set_title(column.replace("_", " ").title())
+            axis.set_ylabel("Number of movies")
+        figure.suptitle("Movie numeric distributions", y=1.02)
+        figure.tight_layout()
+        figure.savefig(output_dir / "02_movie_distributions.png", dpi=160)
+        plt.close(figure)
+
+    return statistics
+
+
+def plot_release_trend(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
+    """Create the release trend and return yearly movie counts."""
+    yearly = (
+        movies.dropna(subset=["release_year"])
+        .query("release_year >= 1900 and release_year <= 2020")
+        .groupby("release_year")
+        .size()
+        .reset_index(name="movie_count")
+    )
+    if output_eda_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        yearly.to_csv(output_dir / "release_counts_by_year.csv", index=False)
+        figure, axis = plt.subplots(figsize=(12, 5))
+        sns.lineplot(data=yearly, x="release_year", y="movie_count", ax=axis)
+        axis.set_title("Movies released by year")
+        axis.set_xlabel("Release year")
+        axis.set_ylabel("Number of movies")
+        figure.tight_layout()
+        figure.savefig(output_dir / "03_release_trend.png", dpi=160)
+        plt.close(figure)
+    return yearly
+
+
+def plot_ratings(ratings, output_dir=OUTPUT_DIR, output_eda_files=False):
+    """Create rating distributions and return monthly and total counts."""
+    result = ratings.copy()
+    result["timestamp"] = pd.to_numeric(result["timestamp"], errors="coerce")
+    result["rating_date"] = pd.to_datetime(result["timestamp"], unit="s", errors="coerce")
+    rating_counts = result.groupby("rating").size().reset_index(name="rating_count")
+    monthly_counts = (
+        result.dropna(subset=["rating_date"])
+        .set_index("rating_date")
+        .resample("ME")
+        .size()
+        .rename("rating_count")
+        .reset_index()
+    )
+    if output_eda_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        rating_counts.to_csv(output_dir / "rating_counts.csv", index=False)
+        figure, axes = plt.subplots(1, 2, figsize=(14, 5))
+        sns.countplot(data=result, x="rating", ax=axes[0], color="#4c72b0")
+        axes[0].set_title("Rating distribution")
+        monthly_counts.plot(x="rating_date", y="rating_count", ax=axes[1], legend=False)
+        axes[1].set_title("Ratings submitted over time")
+        axes[1].set_xlabel("Date")
+        axes[1].set_ylabel("Ratings")
+        figure.tight_layout()
+        figure.savefig(output_dir / "04_ratings.png", dpi=160)
+        plt.close(figure)
+    return {"rating_counts": rating_counts, "monthly_counts": monthly_counts}
+
+
+def plot_nested_features(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
+    """Create nested-feature counts and return all derived tables."""
+    feature_columns = {
+        "genres": "genre_counts.csv",
+        "spoken_languages": "language_counts.csv",
+        "production_countries": "country_counts.csv",
+    }
+    counts_by_file = {}
+    for column, filename in feature_columns.items():
+        values = explode_names(movies, column)
+        counts_by_file[filename] = (
+            values["name"].value_counts()
+            .head(20)
+            .rename_axis("name")
+            .reset_index(name="movie_count")
+        )
+
+    genres = explode_names(movies, "genres")
+    genre_summary = (
+        genres.merge(movies[["id", "vote_average", "vote_count"]], on="id")
+        .groupby("name")
+        .agg(
+            movie_count=("id", "nunique"),
+            mean_vote=("vote_average", "mean"),
+            median_vote=("vote_average", "median"),
+            total_votes=("vote_count", "sum"),
+        )
+        .query("movie_count >= 20")
+        .sort_values("movie_count", ascending=False)
+        .reset_index()
+    )
+    if output_eda_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for filename, counts in counts_by_file.items():
+            counts.to_csv(output_dir / filename, index=False)
+        genre_summary.to_csv(output_dir / "genre_rating_summary.csv", index=False)
+        figure, axes = plt.subplots(1, 3, figsize=(20, 8))
+        for axis, (filename, counts) in zip(axes, counts_by_file.items()):
+            sns.barplot(data=counts, x="movie_count", y="name", ax=axis, color="#55a868")
+            axis.set_title(filename.replace("_counts.csv", "").title())
+        figure.tight_layout()
+        figure.savefig(output_dir / "05_nested_features.png", dpi=160)
+        plt.close(figure)
+    return {**counts_by_file, "genre_rating_summary": genre_summary}
+
+
+def plot_relationships(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
+    """Create correlation and budget/revenue plots and return derived tables."""
+    columns = [
+        "budget",
+        "revenue",
+        "popularity",
+        "runtime",
+        "vote_average",
+        "vote_count",
+    ]
+    correlation = movies[columns].corr(method="spearman")
+    sample = movies.dropna(subset=["budget", "revenue"]).query("budget > 0 and revenue > 0")
+    if output_eda_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        correlation.reset_index().rename(columns={"index": "variable"}).to_csv(
+            output_dir / "spearman_correlation.csv", index=False
+        )
+        figure, axis = plt.subplots(figsize=(9, 7))
+        sns.heatmap(correlation, annot=True, fmt=".2f", cmap="vlag", center=0, ax=axis)
+        axis.set_title("Spearman correlations of movie measures")
+        figure.tight_layout()
+        figure.savefig(output_dir / "06_correlations.png", dpi=160)
+        plt.close(figure)
+        figure, axis = plt.subplots(figsize=(9, 6))
+        sns.scatterplot(
+            data=sample,
+            x="budget",
+            y="revenue",
+            hue="vote_average",
+            size="vote_count",
+            sizes=(10, 180),
+            alpha=0.45,
+            legend=False,
+            ax=axis,
+        )
+        axis.set_xscale("log")
+        axis.set_yscale("log")
+        axis.set_title("Budget versus revenue for movies with both values")
+        figure.tight_layout()
+        figure.savefig(output_dir / "07_budget_revenue.png", dpi=160)
+        plt.close(figure)
+    return {"correlation": correlation, "budget_revenue": sample}
+
+
+def run_step_4(
+    data,
+    output_dir=OUTPUT_DIR,
+    output_eda_files=False,
+):
+    """Run univariate movie analysis on the step 3 data held in memory."""
+    movies = prepare_movies_for_analysis(data["movies_metadata.csv"])
+    results = {"movie_statistics": plot_movie_distributions(
+        movies,
+        output_dir=output_dir,
+        output_eda_files=output_eda_files,
+    )}
+    results["release_counts"] = plot_release_trend(
+        movies, output_dir=output_dir, output_eda_files=output_eda_files
+    )
+    results["ratings"] = plot_ratings(
+        data["ratings_small.csv"],
+        output_dir=output_dir,
+        output_eda_files=output_eda_files,
+    )
+    results["nested_features"] = plot_nested_features(
+        movies, output_dir=output_dir, output_eda_files=output_eda_files
+    )
+    results["relationships"] = plot_relationships(
+        movies, output_dir=output_dir, output_eda_files=output_eda_files
+    )
+    return movies, results
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Inspect and clean EDA input data.")
     parser.add_argument(
-        "--output-files",
+        "--output-clean-files",
         action="store_true",
-        help="Write cleaned tables and the step 3 correction report to disk.",
+        help="Write cleaned step 3 CSV files to disk.",
+    )
+    parser.add_argument(
+        "--output-eda-files",
+        action="store_true",
+        help="Write step 4 EDA outputs to disk.",
     )
     args = parser.parse_args()
     start_time = time.perf_counter()
-    report = inspect_data()
+    data = load_data()
+    report = inspect_data(data=data)
     print(f"Inspection written to {OUTPUT_DIR / 'step_2_inspect_data.csv'}")
-    print(tabulate(report, headers="keys", tablefmt="fancy_grid", showindex=False))
-    handle_missing_data(load_data(), output_files=args.output_files)
-    if args.output_files:
-        print(f"Cleaned data written to {OUTPUT_DIR}")
+    #print(tabulate(report, headers="keys", tablefmt="fancy_grid", showindex=False))
+    cleaned = handle_missing_data(
+        data,
+        output_clean_files=args.output_clean_files,
+    )
+    if args.output_clean_files:
+        print(f"Cleaned CSV files written to {OUTPUT_DIR}")
+    movies, statistics = run_step_4(
+        cleaned,
+        output_eda_files=args.output_eda_files,
+    )
+    if args.output_eda_files:
+        print(f"EDA outputs written to {OUTPUT_DIR}")
+    print(f"Step 4 analyzed {len(movies)} movies")
     elapsed_time = time.perf_counter() - start_time
     print(f"Time elapsed: {elapsed_time:.2f} seconds")
