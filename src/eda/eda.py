@@ -1,3 +1,4 @@
+import argparse
 import csv
 import time
 from pathlib import Path
@@ -228,10 +229,102 @@ def inspect_data(data_dir=DATA_DIR, output_dir=OUTPUT_DIR):
     return report
 
 
+def _record_correction(corrections, table, column, rule, affected_rows):
+    """Append a summary of one missing-value correction."""
+    corrections.append(
+        {
+            "table": table,
+            "column": column,
+            "rule": rule,
+            "affected_rows": int(affected_rows),
+        }
+    )
+
+
+def handle_missing_data(data, output_dir=OUTPUT_DIR, output_files=False):
+    """Apply the step 3 missing-data policy and keep cleaned tables in memory."""
+    cleaned = {}
+    corrections = []
+
+    for filename, frame in data.items():
+        result = frame.copy()
+        for column in result.columns:
+            blank_mask = result[column].astype("string").str.strip().eq("")
+            if blank_mask.any():
+                result.loc[blank_mask, column] = pd.NA
+                _record_correction(
+                    corrections,
+                    filename,
+                    column,
+                    "blank strings converted to missing values",
+                    blank_mask.sum(),
+                )
+
+        if filename == "movies_metadata.csv":
+            for column in ("budget", "revenue", "runtime", "vote_count", "vote_average"):
+                values = pd.to_numeric(result[column], errors="coerce")
+                zero_mask = values.eq(0)
+                if zero_mask.any():
+                    result.loc[zero_mask, column] = pd.NA
+                    _record_correction(
+                        corrections,
+                        filename,
+                        column,
+                        "zero sentinel converted to missing value",
+                        zero_mask.sum(),
+                    )
+
+            missing_status = result["status"].isna()
+            if missing_status.any():
+                result.loc[missing_status, "status"] = "Unknown"
+                _record_correction(
+                    corrections,
+                    filename,
+                    "status",
+                    "missing status replaced with Unknown",
+                    missing_status.sum(),
+                )
+
+        if "tmdbId" in result.columns:
+            missing_tmdb_id = result["tmdbId"].isna()
+            if missing_tmdb_id.any():
+                result = result.loc[~missing_tmdb_id].copy()
+                _record_correction(
+                    corrections,
+                    filename,
+                    "tmdbId",
+                    "rows without tmdbId removed",
+                    missing_tmdb_id.sum(),
+                )
+
+        cleaned[filename] = result
+
+    if output_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for filename, frame in cleaned.items():
+            frame.to_csv(output_dir / f"step_3_cleaned_{filename}", index=False)
+        pd.DataFrame(
+            corrections,
+            columns=["table", "column", "rule", "affected_rows"],
+        ).to_csv(output_dir / "step_3_missing_data.csv", index=False)
+    return cleaned
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Inspect and clean EDA input data.")
+    parser.add_argument(
+        "--output-files",
+        action="store_true",
+        help="Write cleaned tables and the step 3 correction report to disk.",
+    )
+    args = parser.parse_args()
     start_time = time.perf_counter()
     report = inspect_data()
     print(f"Inspection written to {OUTPUT_DIR / 'step_2_inspect_data.csv'}")
     print(tabulate(report, headers="keys", tablefmt="fancy_grid", showindex=False))
+    handle_missing_data(load_data(), output_files=args.output_files)
+    if args.output_files:
+        print(f"Cleaned data written to {OUTPUT_DIR}")
     elapsed_time = time.perf_counter() - start_time
     print(f"Time elapsed: {elapsed_time:.2f} seconds")
