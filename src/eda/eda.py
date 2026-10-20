@@ -13,6 +13,12 @@ import seaborn as sns
 from tabulate import tabulate
 
 
+warnings.filterwarnings(
+    "ignore",
+    message=r"Glyph .* missing from font.*",
+    category=UserWarning,
+)
+
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_DIR / "data"
 DATA_FILES = (
@@ -793,9 +799,7 @@ def plot_nested_features(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
             sns.barplot(data=counts, x="movie_count", y="name", ax=axis, color="#55a868")
             axis.set_title(filename.replace("_counts.csv", "").title())
         figure.tight_layout()
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="Glyph .* missing from font")
-            figure.savefig(output_dir / "step_4_05_nested_features.png", dpi=160)
+        figure.savefig(output_dir / "step_4_05_nested_features.png", dpi=160)
         plt.close(figure)
     return {**counts_by_file, "genre_rating_summary": genre_summary}
 
