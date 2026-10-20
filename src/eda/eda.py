@@ -470,9 +470,16 @@ def plot_release_trend(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
 def plot_ratings(ratings, output_dir=OUTPUT_DIR, output_eda_files=False):
     """Create rating distributions and return monthly and total counts."""
     result = ratings.copy()
+    result["rating"] = pd.to_numeric(result["rating"], errors="coerce")
     result["timestamp"] = pd.to_numeric(result["timestamp"], errors="coerce")
     result["rating_date"] = pd.to_datetime(result["timestamp"], unit="s", errors="coerce")
-    rating_counts = result.groupby("rating").size().reset_index(name="rating_count")
+    rating_counts = (
+        result.dropna(subset=["rating"])
+        .groupby("rating")
+        .size()
+        .reset_index(name="rating_count")
+        .sort_values("rating")
+    )
     monthly_counts = (
         result.dropna(subset=["rating_date"])
         .set_index("rating_date")
@@ -486,7 +493,13 @@ def plot_ratings(ratings, output_dir=OUTPUT_DIR, output_eda_files=False):
         output_dir.mkdir(parents=True, exist_ok=True)
         rating_counts.to_csv(output_dir / "step_4_rating_counts.csv", index=False)
         figure, axes = plt.subplots(1, 2, figsize=(14, 5))
-        sns.countplot(data=result, x="rating", ax=axes[0], color="#4c72b0")
+        sns.countplot(
+            data=result,
+            x="rating",
+            order=rating_counts["rating"].tolist(),
+            ax=axes[0],
+            color="#4c72b0",
+        )
         axes[0].set_title("Rating distribution")
         monthly_counts.plot(x="rating_date", y="rating_count", ax=axes[1], legend=False)
         axes[1].set_title("Ratings submitted over time")
