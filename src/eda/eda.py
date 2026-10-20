@@ -332,8 +332,33 @@ def prepare_movies_for_analysis(movies):
     for column in numeric_columns:
         result[column] = pd.to_numeric(result[column], errors="coerce")
     result["release_date"] = pd.to_datetime(result["release_date"], errors="coerce")
-    result["release_year"] = result["release_date"].dt.year.astype("Int64")
     return result
+
+
+def transform_movies(movies, output_dir=OUTPUT_DIR, output_clean_files=False):
+    """Add date dimensions required by later EDA analyses."""
+    result = prepare_movies_for_analysis(movies)
+    result["release_year"] = result["release_date"].dt.year.astype("Int64")
+    result["release_month"] = result["release_date"].dt.month.astype("Int64")
+    decade = (result["release_year"] // 10) * 10
+    result["release_decade"] = decade.astype("string") + "s"
+
+    if output_clean_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        result.to_csv(output_dir / "step_5_movies_metadata.csv", index=False)
+    return result
+
+
+def run_step_5(data, output_dir=OUTPUT_DIR, output_clean_files=False):
+    """Run data transformation and return all tables for subsequent steps."""
+    transformed = {**data}
+    transformed["movies_metadata.csv"] = transform_movies(
+        data["movies_metadata.csv"],
+        output_dir=output_dir,
+        output_clean_files=output_clean_files,
+    )
+    return transformed
 
 
 def parse_nested(value):
@@ -403,8 +428,10 @@ def plot_movie_distributions(
 
 def plot_release_trend(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
     """Create the release trend and return yearly movie counts."""
+    yearly_movies = movies.copy()
+    yearly_movies["release_year"] = yearly_movies["release_date"].dt.year.astype("Int64")
     yearly = (
-        movies.dropna(subset=["release_year"])
+        yearly_movies.dropna(subset=["release_year"])
         .query("release_year >= 1900 and release_year <= 2020")
         .groupby("release_year")
         .size()
@@ -553,7 +580,7 @@ def run_step_4(
     output_dir=OUTPUT_DIR,
     output_eda_files=False,
 ):
-    """Run univariate movie analysis on the step 3 data held in memory."""
+    """Run EDA analysis on the step 3 data held in memory."""
     movies = prepare_movies_for_analysis(data["movies_metadata.csv"])
     results = {"movie_statistics": plot_movie_distributions(
         movies,
@@ -604,6 +631,11 @@ if __name__ == "__main__":
     movies, statistics = run_step_4(
         cleaned,
         output_eda_files=args.output_eda_files,
+    )
+    step_4_data = {**cleaned, "movies_metadata.csv": movies}
+    transformed = run_step_5(
+        step_4_data,
+        output_clean_files=args.output_clean_files,
     )
     if args.output_eda_files:
         print(f"EDA outputs written to {OUTPUT_DIR}")
