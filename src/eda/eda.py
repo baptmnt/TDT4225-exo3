@@ -16,7 +16,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_DIR / "data"
 DATA_FILES = (
     "movies_metadata.csv",
-    "credits.csv",
+    "credits_small.csv",
     "keywords.csv",
     "links_small.csv",
     "ratings_small.csv",
@@ -426,6 +426,21 @@ def plot_movie_distributions(
     return statistics
 
 
+def count_movie_statuses(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
+    """Count movies by status and return the resulting table."""
+    status_counts = (
+        movies["status"]
+        .value_counts(dropna=False)
+        .rename_axis("status")
+        .reset_index(name="movie_count")
+    )
+    if output_eda_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        status_counts.to_csv(output_dir / "step_4_status_counts.csv", index=False)
+    return status_counts
+
+
 def plot_release_trend(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
     """Create the release trend and return yearly movie counts."""
     yearly_movies = movies.copy()
@@ -587,6 +602,11 @@ def run_step_4(
         output_dir=output_dir,
         output_eda_files=output_eda_files,
     )}
+    results["status_counts"] = count_movie_statuses(
+        movies,
+        output_dir=output_dir,
+        output_eda_files=output_eda_files,
+    )
     results["release_counts"] = plot_release_trend(
         movies, output_dir=output_dir, output_eda_files=output_eda_files
     )
