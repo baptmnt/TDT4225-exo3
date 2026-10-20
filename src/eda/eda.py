@@ -3,6 +3,7 @@ import ast
 import csv
 import json
 import time
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -126,49 +127,50 @@ def _key_series(frame, column):
     return values.astype("Int64").astype("string")
 
 
-def _nested_validation(frame, filename, column):
-    """Summarize malformed and empty serialized nested values."""
+def _validate_nested_column(frame, filename, column, field_predicates):
+    """Parse one nested column once and validate its item fields."""
     malformed = 0
     empty = 0
     item_count = 0
+    invalid_fields = {field: 0 for field in field_predicates}
     for value in frame[column]:
-        if _missing_mask(pd.Series([value])).iloc[0]:
+        if pd.isna(value) or str(value).strip() == "":
             empty += 1
             continue
         parsed = parse_nested(value)
         if parsed:
             item_count += len(parsed)
+            for item in parsed:
+                for field, predicate in field_predicates.items():
+                    if not isinstance(item, dict) or not predicate(item.get(field)):
+                        invalid_fields[field] += 1
         elif str(value).strip() not in {"[]", "{}"}:
             malformed += 1
-    return {
-        "table": filename,
-        "column": column,
-        "check": "nested_structure",
-        "metric": "empty_values",
-        "value": empty,
-    }, {
-        "table": filename,
-        "column": column,
-        "check": "nested_structure",
-        "metric": "malformed_values",
-        "value": malformed,
-    }, {
-        "table": filename,
-        "column": column,
-        "check": "nested_structure",
-        "metric": "nested_items",
-        "value": item_count,
-    }
-
-
-def _nested_field_count(frame, column, field, predicate):
-    """Count nested items whose field does not satisfy a predicate."""
-    invalid = 0
-    for value in frame[column]:
-        for item in parse_nested(value):
-            if not isinstance(item, dict) or not predicate(item.get(field)):
-                invalid += 1
-    return invalid
+    rows = [
+        {
+            "table": filename,
+            "column": column,
+            "check": "nested_structure",
+            "metric": metric,
+            "value": value,
+        }
+        for metric, value in (
+            ("empty_values", empty),
+            ("malformed_values", malformed),
+            ("nested_items", item_count),
+        )
+    ]
+    rows.extend(
+        {
+            "table": filename,
+            "column": column,
+            "check": "nested_fields",
+            "metric": f"invalid_{field}",
+            "value": value,
+        }
+        for field, value in invalid_fields.items()
+    )
+    return rows
 
 
 def validate_related_data(data):
@@ -186,7 +188,27 @@ def validate_related_data(data):
     ):
         frame = data[filename]
         for column in columns:
-            rows.extend(_nested_validation(frame, filename, column))
+            predicates = {}
+            if column == "cast":
+                predicates = {
+                    "id": lambda value: pd.notna(pd.to_numeric(value, errors="coerce")),
+                    "name": non_empty,
+                    "order": lambda value: pd.notna(
+                        pd.to_numeric(value, errors="coerce")
+                    ),
+                }
+            elif column == "crew":
+                predicates = {
+                    "id": lambda value: pd.notna(pd.to_numeric(value, errors="coerce")),
+                    "name": non_empty,
+                    "job": non_empty,
+                }
+            else:
+                predicates = {
+                    "id": lambda value: pd.notna(pd.to_numeric(value, errors="coerce")),
+                    "name": non_empty,
+                }
+            rows.extend(_validate_nested_column(frame, filename, column, predicates))
         ids = _key_series(frame, "id").dropna()
         rows.append({
             "table": filename,
@@ -194,25 +216,6 @@ def validate_related_data(data):
             "check": "foreign_key",
             "metric": "orphan_movie_ids",
             "value": int((~ids.isin(set(movie_ids))).sum()),
-        })
-
-    for column, field, predicate in (
-        ("cast", "id", lambda value: pd.notna(pd.to_numeric(value, errors="coerce"))),
-        ("cast", "name", non_empty),
-        ("cast", "order", lambda value: pd.notna(pd.to_numeric(value, errors="coerce"))),
-        ("crew", "id", lambda value: pd.notna(pd.to_numeric(value, errors="coerce"))),
-        ("crew", "name", non_empty),
-        ("crew", "job", non_empty),
-        ("keywords", "id", lambda value: pd.notna(pd.to_numeric(value, errors="coerce"))),
-        ("keywords", "name", non_empty),
-    ):
-        filename = "keywords.csv" if column == "keywords" else "credits_small.csv"
-        rows.append({
-            "table": filename,
-            "column": column,
-            "check": "nested_fields",
-            "metric": f"invalid_{field}",
-            "value": _nested_field_count(data[filename], column, field, predicate),
         })
 
     links = data["links_small.csv"]
@@ -348,13 +351,18 @@ def _infer_column_type(column, series):
     else:
         expected_type = _infer_unknown_column_type(values)
 
-    value_types = values.map(_value_type)
     if expected_type == "text":
         invalid_mask = pd.Series(False, index=values.index)
     elif expected_type == "numeric":
-        invalid_mask = ~value_types.isin({"integer", "numeric"})
+        invalid_mask = pd.to_numeric(values, errors="coerce").isna()
+    elif expected_type == "integer":
+        numeric_values = pd.to_numeric(values, errors="coerce")
+        invalid_mask = numeric_values.isna() | numeric_values.mod(1).ne(0)
+    elif expected_type == "date":
+        invalid_mask = pd.to_datetime(values, errors="coerce").isna()
     else:
-        invalid_mask = value_types.ne(expected_type)
+        normalized = values.astype("string").str.lower()
+        invalid_mask = ~normalized.isin({"true", "false"})
     return expected_type, invalid_mask
 
 
@@ -422,6 +430,10 @@ def inspect_data(data=None, data_dir=DATA_DIR, output_dir=OUTPUT_DIR):
     ).to_csv(
         output_dir / "step_2_duplicate_rows.csv", index=False
     )
+    duplicate_movie_ids(data["movies_metadata.csv"]).to_csv(
+        output_dir / "step_2_duplicate_movie_ids.csv",
+        index=False,
+    )
     related_report.to_csv(output_dir / "step_2_related_data_validation.csv", index=False)
     return report
 
@@ -430,7 +442,14 @@ def duplicate_movie_ids(movies):
     """Return movie IDs that occur more than once."""
     ids = movies["id"].astype("string").str.strip()
     counts = ids.dropna().loc[lambda values: values.ne("")].value_counts()
-    return counts[counts > 1].rename_axis("id").reset_index(name="occurrences")
+    duplicated = counts[counts > 1].rename_axis("id").reset_index(name="occurrences")
+    duplicated["row_numbers"] = duplicated["id"].map(
+        lambda movie_id: ",".join(
+            str(index + 2)
+            for index in movies.index[ids.eq(movie_id)]
+        )
+    )
+    return duplicated
 
 
 def _record_correction(corrections, table, column, rule, affected_rows):
@@ -465,6 +484,29 @@ def handle_missing_data(data, output_dir=OUTPUT_DIR, output_clean_files=False):
                 )
 
         if filename == "movies_metadata.csv":
+            normalized_ids = result["id"].astype("string").str.strip()
+            row_lengths = result.fillna("").astype("string").apply(
+                lambda column: column.str.len()
+            ).sum(axis=1)
+            rows_to_remove = []
+            for _, group in result.loc[
+                result["id"].notna() & normalized_ids.ne("")
+            ].groupby(normalized_ids):
+                if len(group) > 1:
+                    rows_to_remove.extend(
+                        group.index[row_lengths.loc[group.index].rank(method="first", ascending=False) > 1]
+                    )
+            duplicate_id_mask = result.index.isin(rows_to_remove)
+            if duplicate_id_mask.any():
+                result = result.loc[~duplicate_id_mask].copy()
+                _record_correction(
+                    corrections,
+                    filename,
+                    "id",
+                    "duplicate movie IDs removed; longest row retained",
+                    duplicate_id_mask.sum(),
+                )
+
             for column in ("budget", "revenue", "runtime", "vote_count", "vote_average"):
                 values = pd.to_numeric(result[column], errors="coerce")
                 zero_mask = values.eq(0)
@@ -751,7 +793,9 @@ def plot_nested_features(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
             sns.barplot(data=counts, x="movie_count", y="name", ax=axis, color="#55a868")
             axis.set_title(filename.replace("_counts.csv", "").title())
         figure.tight_layout()
-        figure.savefig(output_dir / "step_4_05_nested_features.png", dpi=160)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Glyph .* missing from font")
+            figure.savefig(output_dir / "step_4_05_nested_features.png", dpi=160)
         plt.close(figure)
     return {**counts_by_file, "genre_rating_summary": genre_summary}
 
