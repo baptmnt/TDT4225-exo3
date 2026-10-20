@@ -803,6 +803,41 @@ def plot_release_trend(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
     return yearly
 
 
+def plot_budget_trend(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
+    """Create the average budget trend and return yearly averages."""
+    yearly_movies = movies.copy()
+    yearly_movies["release_year"] = yearly_movies["release_date"].dt.year.astype("Int64")
+    yearly_budget = (
+        yearly_movies.dropna(subset=["release_year", "budget"])
+        .query("release_year >= 1900 and release_year <= 2020 and budget >= 0")
+        .groupby("release_year", as_index=False)
+        .agg(
+            average_budget=("budget", "mean"),
+            movie_count=("budget", "size"),
+        )
+    )
+    if output_eda_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        yearly_budget.to_csv(
+            output_dir / "step_4_budget_means_by_year.csv", index=False
+        )
+        figure, axis = plt.subplots(figsize=(12, 5))
+        sns.lineplot(
+            data=yearly_budget,
+            x="release_year",
+            y="average_budget",
+            ax=axis,
+        )
+        axis.set_title("Average movie budget by release year")
+        axis.set_xlabel("Release year")
+        axis.set_ylabel("Average budget")
+        figure.tight_layout()
+        figure.savefig(output_dir / "step_4_03_budget_trend.png", dpi=160)
+        plt.close(figure)
+    return yearly_budget
+
+
 def plot_ratings(ratings, output_dir=OUTPUT_DIR, output_eda_files=False):
     """Create rating distributions and return monthly and total counts."""
     result = ratings.copy()
@@ -939,10 +974,10 @@ def plot_relationships(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
     return {"correlation": correlation, "budget_revenue": sample}
 
 
-def plot_runtime_by_decade_genre(
+def plot_popularity_by_decade_genre(
     movies, output_dir=OUTPUT_DIR, output_eda_files=False
 ):
-    """Summarize and visualize runtime by release decade and primary genre."""
+    """Summarize and visualize popularity by release decade and primary genre."""
     result = movies.copy()
     result["primary_genre"] = result["genres"].map(
         lambda value: next(
@@ -955,30 +990,34 @@ def plot_runtime_by_decade_genre(
         )
     )
     summary = (
-        result.dropna(subset=["release_decade", "primary_genre", "runtime"])
+        result.dropna(subset=["release_decade", "primary_genre", "popularity"])
         .groupby(["release_decade", "primary_genre"], as_index=False)
         .agg(
-            median_runtime=("runtime", "median"),
+            median_popularity=("popularity", "median"),
             movie_count=("id", "nunique"),
         )
-        .sort_values(["release_decade", "median_runtime"], ascending=[True, False])
+        .sort_values(["release_decade", "median_popularity"], ascending=[True, False])
     )
     if output_eda_files:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        summary.to_csv(output_dir / "step_6_runtime_by_decade_genre.csv", index=False)
+        summary.to_csv(
+            output_dir / "step_6_popularity_by_decade_genre.csv", index=False
+        )
         heatmap = summary.pivot(
             index="release_decade",
             columns="primary_genre",
-            values="median_runtime",
+            values="median_popularity",
         ).astype(float)
         figure, axis = plt.subplots(figsize=(16, 9))
-        sns.heatmap(heatmap, cmap="YlGnBu", annot=True, fmt=".0f", ax=axis)
-        axis.set_title("Median runtime by decade and primary genre")
+        sns.heatmap(heatmap, cmap="YlOrRd", annot=True, fmt=".1f", ax=axis)
+        axis.set_title("Median popularity by decade and primary genre")
         axis.set_xlabel("Primary genre")
         axis.set_ylabel("Release decade")
         figure.tight_layout()
-        figure.savefig(output_dir / "step_6_03_runtime_by_decade_genre.png", dpi=160)
+        figure.savefig(
+            output_dir / "step_6_03_popularity_by_decade_genre.png", dpi=160
+        )
         plt.close(figure)
     return summary
 
@@ -1020,7 +1059,7 @@ def run_step_6(data, output_dir=OUTPUT_DIR, output_eda_files=False):
         "relationships": plot_relationships(
             movies, output_dir=output_dir, output_eda_files=output_eda_files
         ),
-        "runtime_by_decade_genre": plot_runtime_by_decade_genre(
+        "popularity_by_decade_genre": plot_popularity_by_decade_genre(
             movies, output_dir=output_dir, output_eda_files=output_eda_files
         ),
         "vote_relationships": plot_vote_relationships(
@@ -1075,6 +1114,9 @@ def run_step_4(
         output_eda_files=output_eda_files,
     )
     results["release_counts"] = plot_release_trend(
+        movies, output_dir=output_dir, output_eda_files=output_eda_files
+    )
+    results["budget_by_year"] = plot_budget_trend(
         movies, output_dir=output_dir, output_eda_files=output_eda_files
     )
     results["ratings"] = plot_ratings(
