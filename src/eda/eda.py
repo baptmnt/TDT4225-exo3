@@ -105,6 +105,195 @@ def load_data(data_dir=DATA_DIR):
     }
 
 
+def _find_table(data, required_columns):
+    """Find the single loaded table containing the requested columns."""
+    matches = [
+        frame
+        for frame in data.values()
+        if set(required_columns).issubset(frame.columns)
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"Expected exactly one table with columns {sorted(required_columns)}, "
+            f"found {len(matches)}"
+        )
+    return matches[0]
+
+
+def _key_series(frame, column):
+    """Normalize integer-like key values without dropping leading zeros."""
+    values = pd.to_numeric(frame[column], errors="coerce")
+    return values.astype("Int64").astype("string")
+
+
+def _nested_validation(frame, filename, column):
+    """Summarize malformed and empty serialized nested values."""
+    malformed = 0
+    empty = 0
+    item_count = 0
+    for value in frame[column]:
+        if _missing_mask(pd.Series([value])).iloc[0]:
+            empty += 1
+            continue
+        parsed = parse_nested(value)
+        if parsed:
+            item_count += len(parsed)
+        elif str(value).strip() not in {"[]", "{}"}:
+            malformed += 1
+    return {
+        "table": filename,
+        "column": column,
+        "check": "nested_structure",
+        "metric": "empty_values",
+        "value": empty,
+    }, {
+        "table": filename,
+        "column": column,
+        "check": "nested_structure",
+        "metric": "malformed_values",
+        "value": malformed,
+    }, {
+        "table": filename,
+        "column": column,
+        "check": "nested_structure",
+        "metric": "nested_items",
+        "value": item_count,
+    }
+
+
+def _nested_field_count(frame, column, field, predicate):
+    """Count nested items whose field does not satisfy a predicate."""
+    invalid = 0
+    for value in frame[column]:
+        for item in parse_nested(value):
+            if not isinstance(item, dict) or not predicate(item.get(field)):
+                invalid += 1
+    return invalid
+
+
+def validate_related_data(data):
+    """Validate table-specific structures, keys, domains, and relationships."""
+    rows = []
+    movies = data["movies_metadata.csv"]
+    movie_ids = _key_series(movies, "id").dropna()
+    non_empty = lambda value: value is not None and not pd.isna(value) and bool(
+        str(value).strip()
+    )
+
+    for filename, columns in (
+        ("credits_small.csv", ("cast", "crew")),
+        ("keywords.csv", ("keywords",)),
+    ):
+        frame = data[filename]
+        for column in columns:
+            rows.extend(_nested_validation(frame, filename, column))
+        ids = _key_series(frame, "id").dropna()
+        rows.append({
+            "table": filename,
+            "column": "id",
+            "check": "foreign_key",
+            "metric": "orphan_movie_ids",
+            "value": int((~ids.isin(set(movie_ids))).sum()),
+        })
+
+    for column, field, predicate in (
+        ("cast", "id", lambda value: pd.notna(pd.to_numeric(value, errors="coerce"))),
+        ("cast", "name", non_empty),
+        ("cast", "order", lambda value: pd.notna(pd.to_numeric(value, errors="coerce"))),
+        ("crew", "id", lambda value: pd.notna(pd.to_numeric(value, errors="coerce"))),
+        ("crew", "name", non_empty),
+        ("crew", "job", non_empty),
+        ("keywords", "id", lambda value: pd.notna(pd.to_numeric(value, errors="coerce"))),
+        ("keywords", "name", non_empty),
+    ):
+        filename = "keywords.csv" if column == "keywords" else "credits_small.csv"
+        rows.append({
+            "table": filename,
+            "column": column,
+            "check": "nested_fields",
+            "metric": f"invalid_{field}",
+            "value": _nested_field_count(data[filename], column, field, predicate),
+        })
+
+    links = data["links_small.csv"]
+    for column in ("movieId", "imdbId", "tmdbId"):
+        values = _key_series(links, column).dropna()
+        rows.extend(
+            [
+                {
+                    "table": "links_small.csv",
+                    "column": column,
+                    "check": "key_quality",
+                    "metric": "duplicate_values",
+                    "value": int(values.duplicated().sum()),
+                },
+                {
+                    "table": "links_small.csv",
+                    "column": column,
+                    "check": "key_quality",
+                    "metric": "missing_values",
+                    "value": int(_missing_mask(links[column]).sum()),
+                },
+            ]
+        )
+    tmdb_ids = _key_series(links, "tmdbId").dropna()
+    rows.append({
+        "table": "links_small.csv",
+        "column": "tmdbId",
+        "check": "foreign_key",
+        "metric": "orphan_movie_ids",
+        "value": int((~tmdb_ids.isin(set(movie_ids))).sum()),
+    })
+
+    ratings = data["ratings_small.csv"]
+    rating_values = pd.to_numeric(ratings["rating"], errors="coerce")
+    timestamps = pd.to_numeric(ratings["timestamp"], errors="coerce")
+    rows.extend(
+        [
+            {
+                "table": "ratings_small.csv",
+                "column": "rating",
+                "check": "domain",
+                "metric": "outside_0.5_to_5_range",
+                "value": int((~rating_values.between(0.5, 5)).sum()),
+            },
+            {
+                "table": "ratings_small.csv",
+                "column": "rating",
+                "check": "domain",
+                "metric": "not_half_point_increment",
+                "value": int(((rating_values * 2) % 1 != 0).sum()),
+            },
+            {
+                "table": "ratings_small.csv",
+                "column": "timestamp",
+                "check": "domain",
+                "metric": "invalid_unix_timestamps",
+                "value": int(
+                    pd.to_datetime(timestamps, unit="s", errors="coerce").isna().sum()
+                ),
+            },
+            {
+                "table": "ratings_small.csv",
+                "column": "userId,movieId",
+                "check": "key_quality",
+                "metric": "duplicate_pairs",
+                "value": int(ratings.duplicated(["userId", "movieId"]).sum()),
+            },
+        ]
+    )
+    link_movie_ids = _key_series(links, "movieId").dropna()
+    rated_movie_ids = _key_series(ratings, "movieId").dropna()
+    rows.append({
+        "table": "ratings_small.csv",
+        "column": "movieId",
+        "check": "foreign_key",
+        "metric": "movie_ids_not_in_links",
+        "value": int((~rated_movie_ids.isin(set(link_movie_ids))).sum()),
+    })
+    return pd.DataFrame(rows, columns=["table", "column", "check", "metric", "value"])
+
+
 def _missing_mask(series):
     """Return missing values, including whitespace-only CSV fields."""
     return series.isna() | series.astype("string").str.strip().eq("")
@@ -218,6 +407,7 @@ def inspect_data(data=None, data_dir=DATA_DIR, output_dir=OUTPUT_DIR):
             )
 
     report = pd.DataFrame(rows)
+    related_report = validate_related_data(data)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "step_2_inspect_data.csv"
@@ -232,7 +422,15 @@ def inspect_data(data=None, data_dir=DATA_DIR, output_dir=OUTPUT_DIR):
     ).to_csv(
         output_dir / "step_2_duplicate_rows.csv", index=False
     )
+    related_report.to_csv(output_dir / "step_2_related_data_validation.csv", index=False)
     return report
+
+
+def duplicate_movie_ids(movies):
+    """Return movie IDs that occur more than once."""
+    ids = movies["id"].astype("string").str.strip()
+    counts = ids.dropna().loc[lambda values: values.ne("")].value_counts()
+    return counts[counts > 1].rename_axis("id").reset_index(name="occurrences")
 
 
 def _record_correction(corrections, table, column, rule, affected_rows):
@@ -693,6 +891,34 @@ def run_step_6(data, output_dir=OUTPUT_DIR, output_eda_files=False):
     }
 
 
+def run_step_7(data, output_dir=OUTPUT_DIR, output_clean_files=False):
+    """Remove movies released strictly after July 2017."""
+    cutoff = pd.Timestamp("2017-07-31")
+    movies = data["movies_metadata.csv"].copy()
+    release_dates = pd.to_datetime(movies["release_date"], errors="coerce")
+    keep = release_dates.isna() | release_dates.le(cutoff)
+    filtered = {**data, "movies_metadata.csv": movies.loc[keep].copy()}
+
+    if output_clean_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        filtered["movies_metadata.csv"].to_csv(
+            output_dir / "step_7_movies_metadata.csv",
+            index=False,
+        )
+    return filtered
+
+
+def _run_stage(name, function):
+    """Run one pipeline stage and print its elapsed time."""
+    started_at = time.perf_counter()
+    print(f"[START] {name}")
+    result = function()
+    elapsed = time.perf_counter() - started_at
+    print(f"[DONE] {name} ({elapsed:.2f}s)")
+    return result
+
+
 def run_step_4(
     data,
     output_dir=OUTPUT_DIR,
@@ -714,7 +940,7 @@ def run_step_4(
         movies, output_dir=output_dir, output_eda_files=output_eda_files
     )
     results["ratings"] = plot_ratings(
-        data["ratings_small.csv"],
+        _find_table(data, ("rating", "timestamp")),
         output_dir=output_dir,
         output_eda_files=output_eda_files,
     )
@@ -738,31 +964,54 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     start_time = time.perf_counter()
-    data = load_data()
-    report = inspect_data(data=data)
+    data = _run_stage("Loading input tables", load_data)
+    report = _run_stage("Step 2 - inspecting data", lambda: inspect_data(data=data))
     print(f"Inspection written to {OUTPUT_DIR / 'step_2_inspect_data.csv'}")
-    #print(tabulate(report, headers="keys", tablefmt="fancy_grid", showindex=False))
-    cleaned = handle_missing_data(
-        data,
-        output_clean_files=args.output_clean_files,
+    duplicated_ids = duplicate_movie_ids(data["movies_metadata.csv"])
+    print(
+        "Duplicate movie IDs: "
+        f"{len(duplicated_ids)} IDs ({duplicated_ids['occurrences'].sum()} rows)"
+    )
+    cleaned = _run_stage(
+        "Step 3 - handling missing data",
+        lambda: handle_missing_data(
+            data,
+            output_clean_files=args.output_clean_files,
+        ),
     )
     if args.output_clean_files:
         print(f"Cleaned CSV files written to {OUTPUT_DIR}")
-    movies, statistics = run_step_4(
-        cleaned,
-        output_eda_files=args.output_eda_files,
+    movies, statistics = _run_stage(
+        "Step 4 - running descriptive EDA",
+        lambda: run_step_4(
+            cleaned,
+            output_eda_files=args.output_eda_files,
+        ),
     )
     step_4_data = {**cleaned, "movies_metadata.csv": movies}
-    transformed = run_step_5(
-        step_4_data,
-        output_clean_files=args.output_clean_files,
+    transformed = _run_stage(
+        "Step 5 - transforming data",
+        lambda: run_step_5(
+            step_4_data,
+            output_clean_files=args.output_clean_files,
+        ),
     )
-    run_step_6(
-        transformed,
-        output_eda_files=args.output_eda_files,
+    _run_stage(
+        "Step 6 - visualizing relationships",
+        lambda: run_step_6(
+            transformed,
+            output_eda_files=args.output_eda_files,
+        ),
+    )
+    filtered = _run_stage(
+        "Step 7 - filtering release dates",
+        lambda: run_step_7(
+            transformed,
+            output_clean_files=args.output_clean_files,
+        ),
     )
     if args.output_eda_files:
         print(f"EDA outputs written to {OUTPUT_DIR}")
     print(f"Step 4 analyzed {len(movies)} movies")
-    elapsed_time = time.perf_counter() - start_time
-    print(f"Time elapsed: {elapsed_time:.2f} seconds")
+    print(f"Step 7 retained {len(filtered['movies_metadata.csv'])} movies")
+    print(f"[DONE] Full pipeline ({time.perf_counter() - start_time:.2f}s)")
