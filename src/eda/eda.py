@@ -395,7 +395,7 @@ def plot_movie_distributions(
             axis.set_ylabel("Number of movies")
         figure.suptitle("Movie numeric distributions", y=1.02)
         figure.tight_layout()
-        figure.savefig(output_dir / "02_movie_distributions.png", dpi=160)
+        figure.savefig(output_dir / "step_3_01_movie_distributions.png", dpi=160)
         plt.close(figure)
 
     return statistics
@@ -413,14 +413,14 @@ def plot_release_trend(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
     if output_eda_files:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        yearly.to_csv(output_dir / "release_counts_by_year.csv", index=False)
+        yearly.to_csv(output_dir / "step_3_release_counts_by_year.csv", index=False)
         figure, axis = plt.subplots(figsize=(12, 5))
         sns.lineplot(data=yearly, x="release_year", y="movie_count", ax=axis)
         axis.set_title("Movies released by year")
         axis.set_xlabel("Release year")
         axis.set_ylabel("Number of movies")
         figure.tight_layout()
-        figure.savefig(output_dir / "03_release_trend.png", dpi=160)
+        figure.savefig(output_dir / "step_3_02_release_trend.png", dpi=160)
         plt.close(figure)
     return yearly
 
@@ -442,7 +442,7 @@ def plot_ratings(ratings, output_dir=OUTPUT_DIR, output_eda_files=False):
     if output_eda_files:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        rating_counts.to_csv(output_dir / "rating_counts.csv", index=False)
+        rating_counts.to_csv(output_dir / "step_3_rating_counts.csv", index=False)
         figure, axes = plt.subplots(1, 2, figsize=(14, 5))
         sns.countplot(data=result, x="rating", ax=axes[0], color="#4c72b0")
         axes[0].set_title("Rating distribution")
@@ -451,7 +451,7 @@ def plot_ratings(ratings, output_dir=OUTPUT_DIR, output_eda_files=False):
         axes[1].set_xlabel("Date")
         axes[1].set_ylabel("Ratings")
         figure.tight_layout()
-        figure.savefig(output_dir / "04_ratings.png", dpi=160)
+        figure.savefig(output_dir / "step_3_04_ratings.png", dpi=160)
         plt.close(figure)
     return {"rating_counts": rating_counts, "monthly_counts": monthly_counts}
 
@@ -459,9 +459,9 @@ def plot_ratings(ratings, output_dir=OUTPUT_DIR, output_eda_files=False):
 def plot_nested_features(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
     """Create nested-feature counts and return all derived tables."""
     feature_columns = {
-        "genres": "genre_counts.csv",
-        "spoken_languages": "language_counts.csv",
-        "production_countries": "country_counts.csv",
+        "genres": "step_3_genre_counts.csv",
+        "spoken_languages": "step_3_language_counts.csv",
+        "production_countries": "step_3_country_counts.csv",
     }
     counts_by_file = {}
     for column, filename in feature_columns.items():
@@ -492,13 +492,13 @@ def plot_nested_features(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
         output_dir.mkdir(parents=True, exist_ok=True)
         for filename, counts in counts_by_file.items():
             counts.to_csv(output_dir / filename, index=False)
-        genre_summary.to_csv(output_dir / "genre_rating_summary.csv", index=False)
+        genre_summary.to_csv(output_dir / "step_3_genre_rating_summary.csv", index=False)
         figure, axes = plt.subplots(1, 3, figsize=(20, 8))
         for axis, (filename, counts) in zip(axes, counts_by_file.items()):
             sns.barplot(data=counts, x="movie_count", y="name", ax=axis, color="#55a868")
             axis.set_title(filename.replace("_counts.csv", "").title())
         figure.tight_layout()
-        figure.savefig(output_dir / "05_nested_features.png", dpi=160)
+        figure.savefig(output_dir / "step_3_05_nested_features.png", dpi=160)
         plt.close(figure)
     return {**counts_by_file, "genre_rating_summary": genre_summary}
 
@@ -519,13 +519,13 @@ def plot_relationships(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         correlation.reset_index().rename(columns={"index": "variable"}).to_csv(
-            output_dir / "spearman_correlation.csv", index=False
+            output_dir / "step_3_spearman_correlation.csv", index=False
         )
         figure, axis = plt.subplots(figsize=(9, 7))
         sns.heatmap(correlation, annot=True, fmt=".2f", cmap="vlag", center=0, ax=axis)
         axis.set_title("Spearman correlations of movie measures")
         figure.tight_layout()
-        figure.savefig(output_dir / "06_correlations.png", dpi=160)
+        figure.savefig(output_dir / "step_3_06_correlations.png", dpi=160)
         plt.close(figure)
         figure, axis = plt.subplots(figsize=(9, 6))
         sns.scatterplot(
@@ -543,7 +543,7 @@ def plot_relationships(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
         axis.set_yscale("log")
         axis.set_title("Budget versus revenue for movies with both values")
         figure.tight_layout()
-        figure.savefig(output_dir / "07_budget_revenue.png", dpi=160)
+        figure.savefig(output_dir / "step_3_07_budget_revenue.png", dpi=160)
         plt.close(figure)
     return {"correlation": correlation, "budget_revenue": sample}
 
