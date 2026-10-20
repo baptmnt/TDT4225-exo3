@@ -546,7 +546,7 @@ def plot_nested_features(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
 
 
 def plot_relationships(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
-    """Create correlation and budget/revenue plots and return derived tables."""
+    """Create correlation and budget/revenue plots for step 6."""
     columns = [
         "budget",
         "revenue",
@@ -561,13 +561,13 @@ def plot_relationships(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         correlation.reset_index().rename(columns={"index": "variable"}).to_csv(
-            output_dir / "step_4_spearman_correlation.csv", index=False
+            output_dir / "step_6_spearman_correlation.csv", index=False
         )
         figure, axis = plt.subplots(figsize=(9, 7))
         sns.heatmap(correlation, annot=True, fmt=".2f", cmap="vlag", center=0, ax=axis)
         axis.set_title("Spearman correlations of movie measures")
         figure.tight_layout()
-        figure.savefig(output_dir / "step_4_06_correlations.png", dpi=160)
+        figure.savefig(output_dir / "step_6_01_correlations.png", dpi=160)
         plt.close(figure)
         figure, axis = plt.subplots(figsize=(9, 6))
         sns.scatterplot(
@@ -585,9 +585,99 @@ def plot_relationships(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
         axis.set_yscale("log")
         axis.set_title("Budget versus revenue for movies with both values")
         figure.tight_layout()
-        figure.savefig(output_dir / "step_4_07_budget_revenue.png", dpi=160)
+        figure.savefig(output_dir / "step_6_02_budget_revenue.png", dpi=160)
         plt.close(figure)
     return {"correlation": correlation, "budget_revenue": sample}
+
+
+def plot_runtime_by_decade_genre(
+    movies, output_dir=OUTPUT_DIR, output_eda_files=False
+):
+    """Summarize and visualize runtime by release decade and primary genre."""
+    result = movies.copy()
+    result["primary_genre"] = result["genres"].map(
+        lambda value: next(
+            (
+                item["name"]
+                for item in parse_nested(value)
+                if isinstance(item, dict) and item.get("name")
+            ),
+            pd.NA,
+        )
+    )
+    summary = (
+        result.dropna(subset=["release_decade", "primary_genre", "runtime"])
+        .groupby(["release_decade", "primary_genre"], as_index=False)
+        .agg(
+            median_runtime=("runtime", "median"),
+            movie_count=("id", "nunique"),
+        )
+        .sort_values(["release_decade", "median_runtime"], ascending=[True, False])
+    )
+    if output_eda_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        summary.to_csv(output_dir / "step_6_runtime_by_decade_genre.csv", index=False)
+        heatmap = summary.pivot(
+            index="release_decade",
+            columns="primary_genre",
+            values="median_runtime",
+        ).astype(float)
+        figure, axis = plt.subplots(figsize=(16, 9))
+        sns.heatmap(heatmap, cmap="YlGnBu", annot=True, fmt=".0f", ax=axis)
+        axis.set_title("Median runtime by decade and primary genre")
+        axis.set_xlabel("Primary genre")
+        axis.set_ylabel("Release decade")
+        figure.tight_layout()
+        figure.savefig(output_dir / "step_6_03_runtime_by_decade_genre.png", dpi=160)
+        plt.close(figure)
+    return summary
+
+
+def plot_vote_relationships(movies, output_dir=OUTPUT_DIR, output_eda_files=False):
+    """Visualize relationships between popularity, votes, and average rating."""
+    result = movies[
+        ["popularity", "vote_count", "vote_average"]
+    ].dropna().query("popularity >= 0 and vote_count > 0")
+    if output_eda_files:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        figure, axes = plt.subplots(1, 2, figsize=(16, 6))
+        sns.scatterplot(
+            data=result, x="vote_count", y="popularity", alpha=0.35, ax=axes[0]
+        )
+        axes[0].set_xscale("log")
+        axes[0].set_yscale("log")
+        axes[0].set_title("Popularity versus vote count")
+        axes[0].set_xlabel("Vote count (log scale)")
+        axes[0].set_ylabel("Popularity (log scale)")
+        sns.scatterplot(
+            data=result, x="vote_count", y="vote_average", alpha=0.35, ax=axes[1]
+        )
+        axes[1].set_xscale("log")
+        axes[1].set_title("Average rating versus vote count")
+        axes[1].set_xlabel("Vote count (log scale)")
+        axes[1].set_ylabel("Average rating")
+        figure.tight_layout()
+        figure.savefig(output_dir / "step_6_04_vote_relationships.png", dpi=160)
+        plt.close(figure)
+    return result
+
+
+def run_step_6(data, output_dir=OUTPUT_DIR, output_eda_files=False):
+    """Run relationship analyses on the transformed step 5 data."""
+    movies = data["movies_metadata.csv"]
+    return {
+        "relationships": plot_relationships(
+            movies, output_dir=output_dir, output_eda_files=output_eda_files
+        ),
+        "runtime_by_decade_genre": plot_runtime_by_decade_genre(
+            movies, output_dir=output_dir, output_eda_files=output_eda_files
+        ),
+        "vote_relationships": plot_vote_relationships(
+            movies, output_dir=output_dir, output_eda_files=output_eda_files
+        ),
+    }
 
 
 def run_step_4(
@@ -616,9 +706,6 @@ def run_step_4(
         output_eda_files=output_eda_files,
     )
     results["nested_features"] = plot_nested_features(
-        movies, output_dir=output_dir, output_eda_files=output_eda_files
-    )
-    results["relationships"] = plot_relationships(
         movies, output_dir=output_dir, output_eda_files=output_eda_files
     )
     return movies, results
@@ -656,6 +743,10 @@ if __name__ == "__main__":
     transformed = run_step_5(
         step_4_data,
         output_clean_files=args.output_clean_files,
+    )
+    run_step_6(
+        transformed,
+        output_eda_files=args.output_eda_files,
     )
     if args.output_eda_files:
         print(f"EDA outputs written to {OUTPUT_DIR}")
