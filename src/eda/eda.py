@@ -23,10 +23,10 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_DIR / "data"
 DATA_FILES = (
     "movies_metadata.csv",
-    "credits_small.csv",
+    "credits.csv",
     "keywords.csv",
-    "links_small.csv",
-    "ratings_small.csv",
+    "links.csv",
+    "ratings.csv",
 )
 OUTPUT_DIR = PROJECT_DIR / "outputs" / "eda"
 
@@ -115,8 +115,23 @@ def load_data(data_dir=DATA_DIR):
 def _find_table(data, required_columns):
     """Find the single loaded table containing the requested columns."""
     matches = [
-        frame
-        for frame in data.values()
+        (name, frame)
+        for name, frame in data.items()
+        if set(required_columns).issubset(frame.columns)
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"Expected exactly one table with columns {sorted(required_columns)}, "
+            f"found {len(matches)}"
+        )
+    return matches[0][1]
+
+
+def _find_named_table(data, required_columns):
+    """Find a table by its schema and return its loaded name and frame."""
+    matches = [
+        (name, frame)
+        for name, frame in data.items()
         if set(required_columns).issubset(frame.columns)
     ]
     if len(matches) != 1:
@@ -188,11 +203,12 @@ def validate_related_data(data):
         str(value).strip()
     )
 
-    for filename, columns in (
-        ("credits_small.csv", ("cast", "crew")),
-        ("keywords.csv", ("keywords",)),
-    ):
-        frame = data[filename]
+    nested_tables = (
+        _find_named_table(data, ("id", "cast", "crew")),
+        _find_named_table(data, ("id", "keywords")),
+    )
+    for filename, frame in nested_tables:
+        columns = ("cast", "crew") if "cast" in frame.columns else ("keywords",)
         for column in columns:
             predicates = {}
             if column == "cast":
@@ -224,20 +240,20 @@ def validate_related_data(data):
             "value": int((~ids.isin(set(movie_ids))).sum()),
         })
 
-    links = data["links_small.csv"]
+    links_filename, links = _find_named_table(data, ("movieId", "imdbId", "tmdbId"))
     for column in ("movieId", "imdbId", "tmdbId"):
         values = _key_series(links, column).dropna()
         rows.extend(
             [
                 {
-                    "table": "links_small.csv",
+                    "table": links_filename,
                     "column": column,
                     "check": "key_quality",
                     "metric": "duplicate_values",
                     "value": int(values.duplicated().sum()),
                 },
                 {
-                    "table": "links_small.csv",
+                    "table": links_filename,
                     "column": column,
                     "check": "key_quality",
                     "metric": "missing_values",
@@ -247,34 +263,36 @@ def validate_related_data(data):
         )
     tmdb_ids = _key_series(links, "tmdbId").dropna()
     rows.append({
-        "table": "links_small.csv",
+        "table": links_filename,
         "column": "tmdbId",
         "check": "foreign_key",
         "metric": "orphan_movie_ids",
         "value": int((~tmdb_ids.isin(set(movie_ids))).sum()),
     })
 
-    ratings = data["ratings_small.csv"]
+    ratings_filename, ratings = _find_named_table(
+        data, ("userId", "movieId", "rating", "timestamp")
+    )
     rating_values = pd.to_numeric(ratings["rating"], errors="coerce")
     timestamps = pd.to_numeric(ratings["timestamp"], errors="coerce")
     rows.extend(
         [
             {
-                "table": "ratings_small.csv",
+                "table": ratings_filename,
                 "column": "rating",
                 "check": "domain",
                 "metric": "outside_0.5_to_5_range",
                 "value": int((~rating_values.between(0.5, 5)).sum()),
             },
             {
-                "table": "ratings_small.csv",
+                "table": ratings_filename,
                 "column": "rating",
                 "check": "domain",
                 "metric": "not_half_point_increment",
                 "value": int(((rating_values * 2) % 1 != 0).sum()),
             },
             {
-                "table": "ratings_small.csv",
+                "table": ratings_filename,
                 "column": "timestamp",
                 "check": "domain",
                 "metric": "invalid_unix_timestamps",
@@ -283,7 +301,7 @@ def validate_related_data(data):
                 ),
             },
             {
-                "table": "ratings_small.csv",
+                "table": ratings_filename,
                 "column": "userId,movieId",
                 "check": "key_quality",
                 "metric": "duplicate_pairs",
@@ -294,13 +312,80 @@ def validate_related_data(data):
     link_movie_ids = _key_series(links, "movieId").dropna()
     rated_movie_ids = _key_series(ratings, "movieId").dropna()
     rows.append({
-        "table": "ratings_small.csv",
+        "table": ratings_filename,
         "column": "movieId",
         "check": "foreign_key",
         "metric": "movie_ids_not_in_links",
         "value": int((~rated_movie_ids.isin(set(link_movie_ids))).sum()),
     })
     return pd.DataFrame(rows, columns=["table", "column", "check", "metric", "value"])
+
+
+def compare_rating_sources(data):
+    """Compare MovieLens ratings with TMDB vote aggregates by movie."""
+    movies = data["movies_metadata.csv"].copy()
+    links = _find_table(data, ("movieId", "imdbId", "tmdbId"))
+    ratings = _find_table(data, ("userId", "movieId", "rating", "timestamp"))
+
+    movie_values = movies[["id", "vote_average", "vote_count"]].copy()
+    movie_values["id"] = pd.to_numeric(movie_values["id"], errors="coerce")
+    movie_values["vote_average"] = pd.to_numeric(
+        movie_values["vote_average"], errors="coerce"
+    )
+    movie_values["vote_count"] = pd.to_numeric(
+        movie_values["vote_count"], errors="coerce"
+    )
+    movie_values = movie_values.dropna(subset=["id"]).drop_duplicates("id")
+
+    link_values = links[["movieId", "tmdbId"]].copy()
+    link_values["movie_lens_id"] = pd.to_numeric(
+        link_values["movieId"], errors="coerce"
+    )
+    link_values["tmdb_id"] = pd.to_numeric(link_values["tmdbId"], errors="coerce")
+    link_values = link_values.dropna(
+        subset=["movie_lens_id", "tmdb_id"]
+    )
+    link_values = link_values.loc[
+        ~link_values["movie_lens_id"].duplicated(keep=False)
+    ]
+
+    rating_values = ratings[["movieId", "rating"]].copy()
+    rating_values["movie_lens_id"] = pd.to_numeric(
+        rating_values["movieId"], errors="coerce"
+    )
+    rating_values["rating"] = pd.to_numeric(rating_values["rating"], errors="coerce")
+    rating_summary = (
+        rating_values.dropna(subset=["movie_lens_id", "rating"])
+        .groupby("movie_lens_id", as_index=False)
+        .agg(
+            ratings_count_movielens=("rating", "size"),
+            rating_average_movielens=("rating", "mean"),
+        )
+    )
+
+    comparison = (
+        rating_summary.merge(link_values, on="movie_lens_id", how="inner")
+        .merge(
+            movie_values,
+            left_on="tmdb_id",
+            right_on="id",
+            how="inner",
+        )
+        .drop(columns=["id"])
+    )
+    comparison["count_difference"] = (
+        comparison["ratings_count_movielens"] - comparison["vote_count"]
+    )
+    comparison["average_difference"] = (
+        comparison["rating_average_movielens"] - comparison["vote_average"]
+    )
+    comparison["count_ratio"] = comparison["ratings_count_movielens"].div(
+        comparison["vote_count"].where(comparison["vote_count"].gt(0))
+    )
+    comparison["average_absolute_difference"] = comparison[
+        "average_difference"
+    ].abs()
+    return comparison.sort_values("average_absolute_difference", ascending=False)
 
 
 def _missing_mask(series):
@@ -422,6 +507,7 @@ def inspect_data(data=None, data_dir=DATA_DIR, output_dir=OUTPUT_DIR):
 
     report = pd.DataFrame(rows)
     related_report = validate_related_data(data)
+    rating_comparison = compare_rating_sources(data)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "step_2_inspect_data.csv"
@@ -441,6 +527,10 @@ def inspect_data(data=None, data_dir=DATA_DIR, output_dir=OUTPUT_DIR):
         index=False,
     )
     related_report.to_csv(output_dir / "step_2_related_data_validation.csv", index=False)
+    rating_comparison.to_csv(
+        output_dir / "step_2_rating_source_comparison.csv",
+        index=False,
+    )
     return report
 
 
