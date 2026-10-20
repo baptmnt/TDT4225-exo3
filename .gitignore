@@ -9,6 +9,9 @@ __pycache__/
 data/
 instructions/
 results/
+outputs/eda/step_3_*
+outputs/eda/step_7_movies_metadata.csv
+
 
 # Distribution / packaging
 .Python
