@@ -1,6 +1,6 @@
 from pymongo import MongoClient, version
 import dotenv
-
+from urllib.parse import quote_plus
 
 class DbConnector:
     """
@@ -19,6 +19,10 @@ class DbConnector:
                  HOST=dotenv.get_key('.env', 'HOST'),
                  USER=dotenv.get_key('.env', 'USER'),
                  PASSWORD=dotenv.get_key('.env', 'PASSWORD')):
+        USER = quote_plus(USER)
+        PASSWORD = quote_plus(PASSWORD)
+        HOST = quote_plus(HOST)
+        DATABASE = quote_plus(DATABASE)
         uri = "mongodb://%s:%s@%s/%s" % (USER, PASSWORD, HOST, DATABASE)
         # Connect to the databases
         try:
