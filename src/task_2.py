@@ -1,7 +1,6 @@
 import json
+import pprint
 from typing import Any, List, Optional
-
-from tabulate import tabulate
 
 from src.DbConnector import DbConnector
 
@@ -30,18 +29,18 @@ class MovieQueryWorkspace:
         if not pipeline:
             print("TODO: fill this pipeline")
         else:
-            print(json.dumps(pipeline, indent=2, default=str))
+            pprint.pp(pipeline)
         return pipeline
 
     def print_results(self, title: str, rows: List[dict]) -> List[dict]:
-        """Pretty-print result rows using tabulate."""
+        """Pretty-print result rows with pprint."""
         print(f"\n{'=' * 80}")
         print(title)
         print(f"{'=' * 80}\n")
         if not rows:
             print("No result yet. Run the query when ready.")
             return rows
-        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        pprint.pp(rows)
         return rows
 
     def run_query(self, pipeline):
