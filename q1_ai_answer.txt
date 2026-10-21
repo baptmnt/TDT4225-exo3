@@ -1,0 +1,71 @@
+db.movies.aggregate([
+  // 1. Garder les films avec un revenu connu, et ne garder que les réalisateurs dans crew
+  { $match: { revenue: { $ne: null } } },
+  { $project: {
+      revenue: 1,
+      vote_average: 1,
+      directors: {
+        $filter: {
+          input: "$crew",
+          as: "c",
+          cond: { $eq: ["$$c.job", "Director"] }
+        }
+      }
+  }},
+
+  // 2. Une ligne par (film, réalisateur)
+  { $unwind: "$directors" },
+
+  // 3. Dédoublonnage si un même réalisateur est listé 2 fois dans un film
+  { $group: {
+      _id: { person_id: "$directors.person_id", movie_id: "$_id" },
+      name: { $first: "$directors.name" },
+      revenue: { $first: "$revenue" },
+      vote_average: { $first: "$vote_average" }
+  }},
+
+  // 4. Agrégation par réalisateur
+  { $group: {
+      _id: "$_id.person_id",
+      director: { $first: "$name" },
+      movie_count: { $sum: 1 },
+      mean_vote_average: { $avg: "$vote_average" },
+      revenues: { $push: "$revenue" }
+  }},
+
+  // 5. Au moins 5 films
+  { $match: { movie_count: { $gte: 5 } } },
+
+  // 6. Médiane exacte
+  { $set: {
+      revenues: { $sortArray: { input: "$revenues", sortBy: 1 } }
+  }},
+  { $set: {
+      median_revenue: {
+        $let: {
+          vars: { n: { $size: "$revenues" } },
+          in: {
+            $cond: [
+              { $eq: [{ $mod: ["$$n", 2] }, 1] },
+              { $arrayElemAt: ["$revenues", { $floor: { $divide: ["$$n", 2] } }] },
+              { $avg: [
+                  { $arrayElemAt: ["$revenues", { $subtract: [{ $divide: ["$$n", 2] }, 1] }] },
+                  { $arrayElemAt: ["$revenues", { $divide: ["$$n", 2] }] }
+              ]}
+            ]
+          }
+        }
+      }
+  }},
+
+  // 7. Top 10
+  { $sort: { median_revenue: -1 } },
+  { $limit: 10 },
+  { $project: {
+      _id: 0,
+      director: 1,
+      movie_count: 1,
+      median_revenue: 1,
+      mean_vote_average: { $round: ["$mean_vote_average", 2] }
+  }}
+])
