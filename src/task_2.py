@@ -48,74 +48,74 @@ class MovieQueryWorkspace:
         """Execute a MongoDB pipeline when you are ready."""
         return list(self.movies.aggregate(pipeline))
 
-    def q1_movies_by_release_year(self):
+    def q1(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q1 - Movies by release year", pipeline)
+        return self.print_query("Q1", pipeline)
 
-    def q2_top_genres_by_count(self):
+    def q2(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q2 - Top genres by count", pipeline)
+        return self.print_query("Q2", pipeline)
 
-    def q3_average_runtime_by_genre(self):
+    def q3(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q3 - Average runtime by genre", pipeline)
+        return self.print_query("Q3", pipeline)
 
-    def q4_top_movies_by_revenue(self):
+    def q4(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q4 - Top movies by revenue", pipeline)
+        return self.print_query("Q4", pipeline)
 
-    def q5_average_vote_by_decade(self):
+    def q5(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q5 - Average vote by decade", pipeline)
+        return self.print_query("Q5", pipeline)
 
-    def q6_top_production_countries(self):
+    def q6(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q6 - Top production countries", pipeline)
+        return self.print_query("Q6", pipeline)
 
-    def q7_top_actors_by_appearances(self):
+    def q7(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q7 - Top actors by appearances", pipeline)
+        return self.print_query("Q7", pipeline)
 
-    def q8_top_directors_by_movies(self):
+    def q8(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q8 - Top directors by movie count", pipeline)
+        return self.print_query("Q8", pipeline)
 
-    def q9_movies_by_status(self):
+    def q9(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q9 - Movies by status", pipeline)
+        return self.print_query("Q9", pipeline)
 
-    def q10_movies_by_original_language(self):
+    def q10(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q10 - Movies by original language", pipeline)
+        return self.print_query("Q10", pipeline)
 
     def run_all_questions(self) -> List[Any]:
         """Display all question placeholders in a clean list."""
         return [
-            self.q1_movies_by_release_year(),
-            self.q2_top_genres_by_count(),
-            self.q3_average_runtime_by_genre(),
-            self.q4_top_movies_by_revenue(),
-            self.q5_average_vote_by_decade(),
-            self.q6_top_production_countries(),
-            self.q7_top_actors_by_appearances(),
-            self.q8_top_directors_by_movies(),
-            self.q9_movies_by_status(),
-            self.q10_movies_by_original_language(),
+            self.q1(),
+            self.q2(),
+            self.q3(),
+            self.q4(),
+            self.q5(),
+            self.q6(),
+            self.q7(),
+            self.q8(),
+            self.q9(),
+            self.q10(),
         ]
 
 
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    print("Use methods such as workspace.q1_movies_by_release_year()")
+    print("Use methods such as workspace.q1()")
     print("or workspace.run_all_questions().")
