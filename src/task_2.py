@@ -2,7 +2,9 @@ import json
 import pprint
 from typing import Any, List, Optional
 
-from src.DbConnector import DbConnector
+from tabulate import tabulate
+
+from DbConnector import DbConnector
 
 
 class MovieQueryWorkspace:
@@ -49,8 +51,47 @@ class MovieQueryWorkspace:
 
     def q1(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
-        return self.print_query("Q1", pipeline)
+        pipeline = [
+            {"$match": {"revenue": {"$gt": 0}}},
+            {"$project": {
+                "revenue": 1,
+                "title": 1,
+                "vote_average": 1,
+                "directors": {
+                    "$filter": {
+                        "input": "$crew",
+                        "as": "c",
+                        "cond": {"$eq": ["$$c.job", "Director"]},
+                    }
+                },
+            }},
+            {"$unwind": "$directors"},
+            {"$group": {
+                "_id": "$directors.person_id",
+                "director": {"$first": "$directors.name"},
+                "movie_count": {"$sum": 1},
+                "mean_vote_average": {"$avg": "$vote_average"},
+                "median_revenue": {"$median": {"input": "$revenue", "method": "approximate"}},
+            }},
+            {"$match": {"movie_count": {"$gte": 5}}},
+            {"$sort": {"median_revenue": -1}},
+            {"$limit": 10},
+            {"$project": {
+                "_id": 0,
+                "director": 1,
+                "movie_count": 1,
+                "median_revenue": 1,
+                "mean_vote_average": {"$round": ["$mean_vote_average", 2]},
+            }},
+        ]
+
+        rows = self.run_query(pipeline)
+        print("\nQ1")
+        print("Query:")
+        pprint.pp(pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def q2(self):
         """TODO: write the MongoDB query for this question."""
@@ -116,5 +157,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    print("Use methods such as workspace.q1()")
-    print("or workspace.run_all_questions().")
+    workspace.q1()
