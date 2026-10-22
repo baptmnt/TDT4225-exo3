@@ -583,20 +583,59 @@ class MovieQueryWorkspace:
                 { "$project": {
                     "_id":1,
                     "user_id":1,
+                    "movie_lens_id":1,
                     "rating":1,
                 }},
-    
+
                 { "$group": {
-                    "_id":"user_id",
+                    "_id":"$user_id",
                     "rating_count": {"$sum":1},
-                    "std_dev_ratings": {"$stdDevSamp":"$rating"}
+                    "movies": {"$push":"$movie_lens_id"}
                 }},
     
-                { "$match": {"rating_count": {"$gte":20}}},
-    
-                { "$sort": {"std_dev_ratings":-1}},
-    
-                { "$limit":10}
+                # For each user, add movies_genres
+                { "$lookup": {
+                    "from": "movies",
+                    "localField": "movies",
+                    "foreignField":"movie_lens_id",
+                    "pipeline": [ 
+                        { "$project": {
+                            "_id":0,
+                            "genres":"$genres.name"
+                        }},
+
+                    ],
+                    "as": "movies_genres"
+                }},
+
+                # Here, a double unwind + group (making a set of genres) + set (size of genres)
+                # was replaced by this set (reduce) + set (genre_count)
+                # I coded the first implementation, that was working but very very slow
+                # From my code, AI gave me this more efficient alternative
+                { "$set": { 
+                    "genres": {
+                        "$reduce": {
+                            "input": "$movies_genres.genres",
+                            "initialValue": [],
+                            "in": { "$setUnion": ["$$value", "$$this"] }
+                        }
+                    }
+                }},
+
+                { "$set": { "genre_count": { "$size": "$genres" } } },
+
+                { "$sort": {"genre_count":-1, "rating_count": -1}},
+
+                { "$limit": 10},
+
+                { "$project": {
+                    "_id":0,
+                    "user_id":"$_id",
+                    "genre_count":1,
+                    "rating_count":1
+
+                }}
+
             ]
             rows = self.run_query(pipeline, ratings=True)
             print("\nResults:")
@@ -624,4 +663,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q10_variance()
+    workspace.q10_genre()
