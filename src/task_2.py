@@ -222,10 +222,53 @@ class MovieQueryWorkspace:
 
     def q4(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
+        pipeline = [
+            {"$project": {
+                "_id":1,
+                "revenue":1,
+                "collection": 1,
+                "vote_average":1,
+                "release_date":1
+            }},
+
+            # Keepings values with a collection, and a defined revenue
+            # Since we want to find the top 10 by total revenue, removing None/0 revenues
+            # is not a problem
+            { "$match": {"collection.name": {"$ne":None}, "revenue": {"$gt":0}}},
+
+            { "$group": {
+                "_id": "$collection.id",
+                "name": {"$first":"$collection.name"},
+                "movie_count": {"$sum":1},
+                "total_revenue": {"$sum":"$revenue"},
+                "earliest": {"$min":"$release_date"},
+                "latest": {"$max":"$release_date"},
+                "median_vote_average": {"$median": {"input": "$vote_average", "method": "approximate"}},
+
+            }},
+
+            { "$match": {"movie_count": {"$gte":3}}},
+
+            { "$sort": {"total_revenue":-1}},
+
+            { "$limit": 10},
+
+            { "$project": {
+                "_id":0,
+                "name":1,
+                "movie_count":1,
+                "total_revenue":1,
+                "earliest":1,
+                "latest":1,
+                "median_vote_average":1
+            }}
+
+            
+        ]
+                
         rows = self.run_query(pipeline)
         print("\nResults:")
-        #print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
 
     def q5(self):
