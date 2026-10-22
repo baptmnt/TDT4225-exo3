@@ -21,6 +21,10 @@ class MovieQueryWorkspace:
     def movies(self):
         return self.db["movies"]
 
+    @property
+    def ratings(self):
+        return self.db["ratings"]
+
     def print_query(self, title: str, pipeline: List[dict]) -> List[dict]:
         """Pretty-print a MongoDB pipeline without executing it."""
         print(f"\n{'=' * 80}")
@@ -48,9 +52,12 @@ class MovieQueryWorkspace:
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
 
-    def run_query(self, pipeline):
+    def run_query(self, pipeline, ratings=False):
         """Execute a MongoDB pipeline when you are ready."""
-        return list(self.movies.aggregate(pipeline))
+        if ratings:
+            return list(self.ratings.aggregate(pipeline))
+        else:
+            return list(self.movies.aggregate(pipeline))
 
     def q1(self):
         """TODO: write the MongoDB query for this question."""
@@ -544,13 +551,59 @@ class MovieQueryWorkspace:
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
 
-    def q10(self):
+    def q10_variance(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
-        rows = self.run_query(pipeline)
+        pipeline = [
+            { "$project": {
+                "_id":1,
+                "user_id":1,
+                "rating":1,
+            }},
+
+            { "$group": {
+                "_id":"$user_id",
+                "rating_count": {"$sum":1},
+                "std_dev_ratings": {"$stdDevSamp":"$rating"}
+            }},
+
+            { "$match": {"rating_count": {"$gte":20}}},
+
+            { "$sort": {"std_dev_ratings":-1}},
+
+            { "$limit":10}
+        ]
+        rows = self.run_query(pipeline, ratings=True)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
+
+    def q10_genre(self):
+            """TODO: write the MongoDB query for this question."""
+            pipeline = [
+                { "$project": {
+                    "_id":1,
+                    "user_id":1,
+                    "rating":1,
+                }},
+    
+                { "$group": {
+                    "_id":"user_id",
+                    "rating_count": {"$sum":1},
+                    "std_dev_ratings": {"$stdDevSamp":"$rating"}
+                }},
+    
+                { "$match": {"rating_count": {"$gte":20}}},
+    
+                { "$sort": {"std_dev_ratings":-1}},
+    
+                { "$limit":10}
+            ]
+            rows = self.run_query(pipeline, ratings=True)
+            print("\nResults:")
+            print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+            return rows
+    
+        
 
     def run_all_questions(self) -> List[Any]:
         """Display all question placeholders in a clean list."""
@@ -571,4 +624,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q9()
+    workspace.q10_variance()
