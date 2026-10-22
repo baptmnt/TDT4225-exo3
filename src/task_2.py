@@ -430,7 +430,80 @@ class MovieQueryWorkspace:
 
     def q8(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
+        #I'll reuse some parts of Q2's pipeline.
+        pipeline = [
+            {"$project": {
+                "vote_average": 1,
+                "vote_count":1,
+                "revenue":1,
+                "cast_director_pairs": {
+                    #Map to create cast_director_pairs
+                    "$map": {
+                        "input":"$cast",
+                        "as":"ca",
+                        "in": {
+                            #Filter to avoid duplicates
+                            "$filter":{
+                                "input":{
+                                    #Map for the second crew of the pair
+                                    "$map": {
+                                        "input":"$crew",
+                                        "as":"cr",
+                                        "in": {
+                                            "cast_id":"$$ca.person_id",
+                                            "cast_name":"$$ca.name", 
+                                            "director_id":"$$cr.person_id", 
+                                            "director_name":"$$cr.name",
+                                            "crew_job":"$$cr.job"
+                                        }
+                                    }
+                                },
+                                "as":"pair",
+                                "cond":{"$gt":["$$pair.cast_id","$$pair.director_id"]}
+                            }
+                        }
+                    }
+                },
+            }},
+
+            #Double unwind to get 1 line per cast pair (with movie_id)
+            { "$unwind": "$cast_director_pairs" },
+            { "$unwind": "$cast_director_pairs" },
+
+            #Keep only Director and movies with more than 100 votes.
+            { "$match": {"vote_count": { "$gte":100}, "cast_director_pairs.crew_job": {"$eq":"Director"}}},
+
+            { "$group": {
+                "_id": {"a":"$cast_director_pairs.cast_id", "b":"$cast_director_pairs.director_id"},
+
+                "cast_name":{ "$first":"$cast_director_pairs.cast_name"},
+                "director_name":{ "$first":"$cast_director_pairs.director_name"},
+
+                "collaboration_count": { "$sum":1 },
+                "mean_vote_average": { "$avg": "$vote_average" },
+                "mean_revenue": { "$avg": "$revenue" }
+            }},
+
+            #Keep only the pairs with more (>=) than 3 co-appereance and order it DSC
+            { "$match": { "collaboration_count": { "$gte": 3 } } },
+            { "$sort": { "vote_average": -1 } },
+
+            { "$project": {
+                "_id": 0,
+                "director_name": 1,
+                "cast_name": 1,
+                "collaboration_count": 1,
+                "mean_vote_average": {"$round": ["$mean_vote_average", 2]},
+                "mean_revenue": 1,
+
+            }},
+            
+            {"$limit": 20},
+                        
+
+            
+        ]
+        
         rows = self.run_query(pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
@@ -471,4 +544,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q7()
+    workspace.q8()
