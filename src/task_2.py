@@ -315,7 +315,53 @@ class MovieQueryWorkspace:
 
     def q6(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
+        pipeline = [
+            {"$project": {
+                "_id":1,
+                "release_decade":1,
+                "cast": 1
+            }},
+
+            { "$unwind": "$cast"},
+            
+            { "$match": {"release_decade": {"$ne":None}} },
+            # Keepings the top 5 billed cast and ignored unknow gender
+
+            { "$match": {"cast.order": {"$lt":5}, "cast.gender": {"$in": [1,2]}} },
+
+            # Calculates the number of female cast per film. We take into account the fact that we may have less than 5 cast members
+            { "$group": {
+                "_id":"$_id",
+                "decade": {"$first":"$release_decade"},
+                "female_count": {"$sum": {"$cond": [{"$eq": ["$cast.gender", 1]}, 1, 0]}},
+                "cast_count": {"$sum":1}
+            }},
+
+            { "$set": {
+                "female_proportion": {"$divide":["$female_count","$cast_count"]}
+            }},
+
+            { "$group": {
+                "_id": "$decade",
+                "decade": {"$first":"$decade"},
+                "movie_count": {"$sum":1},
+                "average_female_proportion": {"$avg":"$female_proportion"}
+            }},
+
+            { "$sort": {"average_female_proportion":-1}},
+
+            # Just for display purpose
+            { "$limit":15},
+
+            { "$project": {
+                "_id":0,
+                "decade":1,
+                "average_female_proportion":1,
+                "movie_count":1
+            }}
+
+        ]
+                
         rows = self.run_query(pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
@@ -372,4 +418,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q5()
+    workspace.q6()
