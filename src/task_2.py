@@ -230,37 +230,72 @@ class MovieQueryWorkspace:
     def q4(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q4", pipeline)
+        rows = self.run_query(pipeline)
+        print("\n")
+        self.print_query("Query for Q4:", pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def q5(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q5", pipeline)
+        rows = self.run_query(pipeline)
+        print("\n")
+        self.print_query("Query for Q5:", pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def q6(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q6", pipeline)
+        rows = self.run_query(pipeline)
+        print("\n")
+        self.print_query("Query for Q6:", pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def q7(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q7", pipeline)
+        rows = self.run_query(pipeline)
+        print("\n")
+        self.print_query("Query for Q7:", pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def q8(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q8", pipeline)
+        rows = self.run_query(pipeline)
+        print("\n")
+        self.print_query("Query for Q8:", pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def q9(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q9", pipeline)
+        rows = self.run_query(pipeline)
+        print("\n")
+        self.print_query("Query for Q9:", pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def q10(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
-        return self.print_query("Q10", pipeline)
+        rows = self.run_query(pipeline)
+        print("\n")
+        self.print_query("Query for Q10:", pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def run_all_questions(self) -> List[Any]:
         """Display all question placeholders in a clean list."""
@@ -281,4 +316,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q3()
+    workspace.q4()
