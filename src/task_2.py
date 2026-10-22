@@ -511,7 +511,34 @@ class MovieQueryWorkspace:
 
     def q9(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
+        pipeline = [
+            { "$project": {
+                "_id":1,
+                "original_title":1,
+                "original_language":1,
+                "production_countries":1,
+            }},
+
+            { "$unwind": "$production_countries"},
+
+            #Get only non english speaking movies producted in the US
+            { "$match": {"original_language": {"$ne":"en"}, "production_countries.iso_3166_1": {"$eq":"US"}}},
+
+            { "$group": {
+                "_id": "$original_language",
+                "language": {"$first":"$original_language"},
+                "movie_count": {"$sum":1},
+                "example_title": {"$first":"$original_title"},
+            }},
+
+            { "$sort": {"movie_count":-1}},
+
+            { "$limit":10},
+
+            { "$project": {
+                "_id":0
+            }}
+        ]
         rows = self.run_query(pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
@@ -544,4 +571,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q8()
+    workspace.q9()
