@@ -1,4 +1,3 @@
-import json
 import pprint
 from typing import Any, List, Optional
 
@@ -31,18 +30,22 @@ class MovieQueryWorkspace:
         if not pipeline:
             print("TODO: fill this pipeline")
         else:
-            pprint.pp(pipeline)
+            pprint.PrettyPrinter(
+                indent=2,
+                width=120,
+                sort_dicts=False,
+            ).pprint(pipeline)
         return pipeline
 
     def print_results(self, title: str, rows: List[dict]) -> List[dict]:
-        """Pretty-print result rows with pprint."""
+        """Pretty-print result rows with tabulate."""
         print(f"\n{'=' * 80}")
         print(title)
         print(f"{'=' * 80}\n")
         if not rows:
             print("No result yet. Run the query when ready.")
             return rows
-        pprint.pp(rows)
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
 
     def run_query(self, pipeline):
@@ -95,13 +98,134 @@ class MovieQueryWorkspace:
 
     def q2(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
-        return self.print_query("Q2", pipeline)
+        pipeline = [
+            {"$project": {
+                "vote_average": 1,
+                "cast_pairs": {
+                    #Map to create cast_pairs
+                    "$map": {
+                        "input":"$cast",
+                        "as":"c_a",
+                        "in": {
+                            #Filter to avoid duplicates
+                            "$filter":{
+                                "input":{
+                                    #Map for the second cast of the pair
+                                    "$map": {
+                                        "input":"$cast",
+                                        "as":"c_b",
+                                        "in": {
+                                            "a":"$$c_a.person_id",
+                                            "name_a":"$$c_a.name", 
+                                            "b":"$$c_b.person_id", 
+                                            "name_b":"$$c_b.name"
+                                        }
+                                    }
+                                },
+                                "as":"pair",
+                                "cond":{"$gt":["$$pair.a","$$pair.b"]}
+                            }
+                        }
+                    }
+                },
+            }},
+
+            #Double unwind to get 1 line per cast pair (with movie _id)
+            { "$unwind": "$cast_pairs" },
+            { "$unwind": "$cast_pairs" },
+
+            #Group per pair and get values
+            { "$group": {
+                "_id": { "a": "$cast_pairs.a", "b": "$cast_pairs.b" },
+                "name_a":{ "$first":"$cast_pairs.name_a"},
+                "name_b":{ "$first":"$cast_pairs.name_b"},
+
+                "co_appearance_count": { "$sum":1 },
+                "mean_vote_average": { "$avg": "$vote_average" },
+            }},
+
+            #Keep only the pairs with more (>=) than 3 co-appereance and order it DSC
+            { "$match": { "co_appearance_count": { "$gte": 3 } } },
+            { "$sort": { "co_appearance_count": -1 } },
+
+            { "$project": {
+                "_id": 0,
+                "name_a": 1,
+                "name_b": 1,
+                "co_appearance_count": 1,
+                "mean_vote_average": {"$round": ["$mean_vote_average", 2]},
+            }},
+            
+            {"$limit": 10},
+            
+        ]
+
+        rows = self.run_query(pipeline)
+        print("\n")
+        self.print_query("Query for Q2:", pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def q3(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
-        return self.print_query("Q3", pipeline)
+        pipeline = [
+            {"$project": {
+                "actor_genres": {
+                    "$map": {
+                        "input":"$cast",
+                        "as":"c",
+                        "in":{
+                            "cast_id":"$$c.person_id", 
+                            "cast_name":"$$c.name",
+                            "genres":"$genres.name"
+                        }
+                    }
+                }
+                
+            }},
+
+            { "$unwind": "$actor_genres"},
+            { "$unwind": "$actor_genres.genres"},
+
+
+
+            { "$group": {
+                "_id": "$actor_genres.cast_id",
+                "cast": {"$first": "$actor_genres.cast_name"},
+                "movies": { "$addToSet": "$_id"},
+                "genres": { "$addToSet": "$actor_genres.genres" }
+            }},
+
+
+            { "$set": {
+                "movie_count": {"$size": "$movies"},
+                "genre_count": {"$size": "$genres"}
+            }},
+
+            { "$match": {"movie_count": { "$gte":10 }}},
+
+            { "$sort": {"genre_count":-1}},
+
+            { "$limit": 10},
+
+            { "$project": {
+                "_id":0,
+                "cast":1,
+                "genre_count":1,
+                "genres_extract": {"$slice": ["$genres", 5]}
+            }}
+
+
+            
+        ]
+        
+        rows = self.run_query(pipeline)
+        print("\n")
+        self.print_query("Query for Q3:", pipeline)
+        print("\nResults:")
+        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        return rows
 
     def q4(self):
         """TODO: write the MongoDB query for this question."""
@@ -157,4 +281,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q1()
+    workspace.q3()
