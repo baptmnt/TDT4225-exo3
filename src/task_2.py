@@ -369,9 +369,62 @@ class MovieQueryWorkspace:
 
     def q7(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
+        pipeline = [
+            # Search for the litteral "neo-noir" substring.
+            {"$match": {
+                "$text": {"$search": "\"neo-noir\""},
+                "vote_count": {"$gte": 50}
+            }},
+
+            {"$project": {
+                "_id": 1, 
+                "title": 1, 
+                "release_year": 1, 
+                "vote_average": 1, 
+                "vote_count": 1
+            }},
+
+            #Union to run the second text search
+            {"$unionWith": {
+                "coll": "movies",
+                "pipeline": [
+                    {"$match": {
+                        "$text": {"$search": "noir"},
+                        "vote_count": {"$gte": 50}
+                    }},
+                    {"$project": {
+                        "_id": 1, 
+                        "title": 1, 
+                        "release_year": 1, 
+                        "vote_average": 1, 
+                        "vote_count": 1
+                    }}
+                ]
+            }},
+
+            {"$group": {
+                "_id": "$_id",
+                "title": {"$first": "$title"},
+                "release_year": {"$first": "$release_year"},
+                "vote_average": {"$first": "$vote_average"},
+                "vote_count": {"$first": "$vote_count"}
+            }},
+
+            {"$sort": {"vote_average": -1}},
+
+            {"$limit": 20},
+
+            {"$project": {
+                "_id": 0,
+                "title":1,
+                "release_year":1,
+                "vote_average":1,
+                "vote_count":1
+                }}
+        ]
         rows = self.run_query(pipeline)
         print("\nResults:")
+        print(len(rows))
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
 
@@ -418,4 +471,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q6()
+    workspace.q7()
