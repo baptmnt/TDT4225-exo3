@@ -273,7 +273,41 @@ class MovieQueryWorkspace:
 
     def q5(self):
         """TODO: write the MongoDB query for this question."""
-        pipeline = []
+        pipeline = [
+            {"$project": {
+                "_id":1,
+                "release_decade":1,
+                "runtime":1,
+                "first_genre": {"$first":"$genres"}
+            }},
+
+            
+            # Keepings values with an existing runtime
+            { "$match": {"runtime": {"$gt":0}, "first_genre": {"$ne":None}}},
+
+            { "$group": {
+                "_id": {"d":"$release_decade", "g":"$first_genre.id"},
+                "decade": {"$first":"$release_decade"},
+                "genre_name": {"$first":"$first_genre.name"},
+                "movie_count": {"$sum":1},
+                "median_runtime": {"$median": {"input": "$runtime", "method": "approximate"}},
+
+            }},
+
+            {"$sort": {"decade":-1, "median_runtime":-1}},
+
+            # Just for display purpose
+            { "$limit":15},
+
+            { "$project": {
+                "_id":0,
+                "decade":1,
+                "genre_name":1,
+                "movie_count":1,
+                "median_runtime":1
+            }}
+
+        ]
         rows = self.run_query(pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
@@ -338,4 +372,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q4()
+    workspace.q5()
