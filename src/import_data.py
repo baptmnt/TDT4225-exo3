@@ -17,12 +17,15 @@ from pathlib import Path
 import pandas as pd
 from pymongo import ReplaceOne
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+SOURCE_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = PROJECT_DIR / "outputs" / "eda"
 
 # Make the project package importable both as a module and as a direct script.
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
+if str(SOURCE_DIR) not in sys.path:
+    sys.path.insert(0, str(SOURCE_DIR))
 
 from DbConnector import DbConnector
 
@@ -60,6 +63,19 @@ def _parse_nested(value):
         except (json.JSONDecodeError, TypeError):
             return []
     return parsed if isinstance(parsed, list) else []
+
+
+def _parse_mapping(value):
+    if value is None or pd.isna(value) or str(value).strip() in {"", "{}"}:
+        return {}
+    try:
+        parsed = ast.literal_eval(str(value))
+    except (SyntaxError, ValueError):
+        try:
+            parsed = json.loads(str(value))
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _int_or_none(value):
@@ -153,6 +169,7 @@ def _create_schema(database):
         unique=True,
         partialFilterExpression={"movie_lens_id": {"$type": ["int", "long"]}},
     )
+    database.movies.create_index("collection.id")
     database.movies.create_index([("overview", "text"), ("tagline", "text")])
     database.ratings.create_index("movie_lens_id")
     database.ratings.create_index("user_id")
@@ -230,6 +247,7 @@ def _movie_document(row, credits, keywords, links, aggregates):
         "tagline": _clean_value(row.get("tagline")) or None,
         "homepage": _clean_value(row.get("homepage")) or None,
         "poster_path": _clean_value(row.get("poster_path")) or None,
+        "collection": _collection_or_none(row.get("belongs_to_collection")),
         "genres": _nested_items(
             row.get("genres"),
             {"id": "id", "name": "name"},
@@ -271,6 +289,19 @@ def _movie_document(row, credits, keywords, links, aggregates):
         ),
     }
     return _clean_value(document)
+
+
+def _collection_or_none(value):
+    collection = _parse_mapping(value)
+    collection_id = _int_or_none(collection.get("id"))
+    collection_name = _clean_value(collection.get("name"))
+    if (
+        collection_id is None
+        or not isinstance(collection_name, str)
+        or not collection_name
+    ):
+        return None
+    return {"id": collection_id, "name": collection_name}
 
 
 def _rating_operations(database, ratings, links, movie_ids, chunk_size=100_000, write_chunk_size=5_000):
