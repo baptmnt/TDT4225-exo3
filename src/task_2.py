@@ -493,7 +493,7 @@ class MovieQueryWorkspace:
 
             #Keep only the pairs with more (>=) than 3 co-appereance and order it DSC
             { "$match": { "collaboration_count": { "$gte": 3 } } },
-            { "$sort": { "vote_average": -1 } },
+            { "$sort": { "mean_vote_average": -1 } },
 
             { "$project": {
                 "_id": 0,
@@ -663,4 +663,4 @@ class MovieQueryWorkspace:
 if __name__ == "__main__":
     workspace = MovieQueryWorkspace()
     print("MongoDB query workspace ready.")
-    workspace.q10_genre()
+    workspace.q8()
