@@ -89,9 +89,6 @@ class MovieQueryWorkspace:
         ]
 
         rows = self.run_query(pipeline)
-        print("\nQ1")
-        print("Query:")
-        pprint.pp(pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
@@ -161,8 +158,6 @@ class MovieQueryWorkspace:
         ]
 
         rows = self.run_query(pipeline)
-        print("\n")
-        self.print_query("Query for Q2:", pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
@@ -221,8 +216,6 @@ class MovieQueryWorkspace:
         ]
         
         rows = self.run_query(pipeline)
-        print("\n")
-        self.print_query("Query for Q3:", pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
@@ -231,18 +224,14 @@ class MovieQueryWorkspace:
         """TODO: write the MongoDB query for this question."""
         pipeline = []
         rows = self.run_query(pipeline)
-        print("\n")
-        self.print_query("Query for Q4:", pipeline)
         print("\nResults:")
-        print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
+        #print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
 
     def q5(self):
         """TODO: write the MongoDB query for this question."""
         pipeline = []
         rows = self.run_query(pipeline)
-        print("\n")
-        self.print_query("Query for Q5:", pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
@@ -251,8 +240,6 @@ class MovieQueryWorkspace:
         """TODO: write the MongoDB query for this question."""
         pipeline = []
         rows = self.run_query(pipeline)
-        print("\n")
-        self.print_query("Query for Q6:", pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
@@ -261,8 +248,6 @@ class MovieQueryWorkspace:
         """TODO: write the MongoDB query for this question."""
         pipeline = []
         rows = self.run_query(pipeline)
-        print("\n")
-        self.print_query("Query for Q7:", pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
@@ -271,8 +256,6 @@ class MovieQueryWorkspace:
         """TODO: write the MongoDB query for this question."""
         pipeline = []
         rows = self.run_query(pipeline)
-        print("\n")
-        self.print_query("Query for Q8:", pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
@@ -281,8 +264,6 @@ class MovieQueryWorkspace:
         """TODO: write the MongoDB query for this question."""
         pipeline = []
         rows = self.run_query(pipeline)
-        print("\n")
-        self.print_query("Query for Q9:", pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
@@ -291,8 +272,6 @@ class MovieQueryWorkspace:
         """TODO: write the MongoDB query for this question."""
         pipeline = []
         rows = self.run_query(pipeline)
-        print("\n")
-        self.print_query("Query for Q10:", pipeline)
         print("\nResults:")
         print(tabulate(rows, headers="keys", tablefmt="grid", missingval="NULL"))
         return rows
